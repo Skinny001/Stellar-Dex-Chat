@@ -36,7 +36,15 @@ export default function StellarFiatModal({
   const { connection, signTx } = useStellarWallet();
 
   const [amount, setAmount] = useState(defaultAmount);
+  const [activePreset, setActivePreset] = useState<number | null>(null);
   const [recipient, setRecipient] = useState(recipientAddress);
+
+  const AMOUNT_PRESETS = [5, 10, 25, 50, 100];
+
+  const handlePreset = (value: number) => {
+    setAmount(String(value));
+    setActivePreset(value);
+  };
   const [status, setStatus] = useState<TxStatus>("idle");
   const [txHash, setTxHash] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -151,12 +159,31 @@ export default function StellarFiatModal({
               <label className="block text-sm text-gray-400 mb-1">
                 Amount (XLM)
               </label>
+              <div className="flex gap-2 mb-2">
+                {AMOUNT_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => handlePreset(preset)}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                      activePreset === preset
+                        ? "bg-blue-600 border-blue-500 text-white"
+                        : "bg-gray-800 border-gray-600 text-gray-300 hover:border-blue-500 hover:text-white"
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
               <input
                 type="number"
                 min="0"
                 step="0.0000001"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setActivePreset(null);
+                }}
                 placeholder="0.00"
                 className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />

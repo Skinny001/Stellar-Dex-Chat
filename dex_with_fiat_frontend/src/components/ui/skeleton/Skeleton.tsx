@@ -1,5 +1,5 @@
 import React from "react";
-import { cn } from "@/lib/utils";
+//import { cn } from "@/lib/utils";
 
 type SkeletonProps = {
   className?: string;
@@ -7,11 +7,6 @@ type SkeletonProps = {
 
 export default function Skeleton({ className }: SkeletonProps) {
   return (
-    <div
-      className={cn(
-        "animate-pulse rounded-md bg-gray-700/40",
-        className
-      )}
-    />
+    <div className={cn("animate-pulse rounded-md bg-gray-700/40", className)} />
   );
 }
