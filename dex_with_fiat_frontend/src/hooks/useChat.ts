@@ -131,7 +131,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         content,
       );
       if (isCancellation) {
-        setConversationState((prev) => ({
+        setConversationState((prev: ConversationState) => ({
           ...prev,
           hasUserCancelled: true,
           pendingTransactionData: null,
@@ -146,7 +146,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
       setIsLoading(true);
 
       try {
@@ -155,7 +155,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           walletAddress: connection.address,
           previousMessages: messages
             .slice(-3)
-            .map((m) => ({ role: m.role, content: m.content })),
+            .map((m: ChatMessage) => ({ role: m.role, content: m.content })),
           messageCount: conversationState.messageCount,
           hasTransactionData: !!conversationState.pendingTransactionData,
         };
@@ -235,7 +235,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
             "**Conversion Cancelled**\\n\\nNo problem! I've cancelled the transaction process. Feel free to start fresh whenever you're ready to convert crypto to fiat. I'm here to help whenever you need assistance.\\n\\nIs there anything else I can help you with today?";
         }
 
-        setConversationState((prev) => ({
+        setConversationState((prev: ConversationState) => ({
+          ...prev,
           messageCount: newMessageCount,
           hasUserCancelled: isCancellation ? true : prev.hasUserCancelled,
           pendingTransactionData,
@@ -272,7 +273,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           },
         };
 
-        setMessages((prev) => [...prev, assistantMessage]);
+        setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
         if (
           shouldTriggerTransaction &&
@@ -292,7 +293,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
             'Sorry, I encountered an error processing your request. Please try again.',
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, errorMessage]);
+        setMessages((prev: ChatMessage[]) => [...prev, errorMessage]);
       } finally {
         setIsLoading(false);
       }
@@ -338,7 +339,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   useEffect(() => {
     if (isInitialized) {
-      setMessages((prevMessages) => {
+      setMessages((prevMessages: ChatMessage[]) => {
         if (prevMessages.length > 0 && prevMessages[0]?.id === '1') {
           const updatedMessages = [...prevMessages];
           updatedMessages[0] = {
@@ -365,11 +366,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     conversationState,
     setTransactionReadyCallback,
     setIsAdmin: (isAdmin: boolean) => {
-      setConversationState(prev => ({ ...prev, isAdmin }));
+      setConversationState((prev: ConversationState) => ({ ...prev, isAdmin }));
     },
     addMessage: (message: ChatMessage) => {
       const newMessages = [...messages, message];
-      setMessages(newMessages);
+      setMessages((prev: ChatMessage[]) => [...prev, message]);
       // Update session with new messages
       updateCurrentSession(newMessages);
     },

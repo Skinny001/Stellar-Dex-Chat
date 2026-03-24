@@ -66,8 +66,8 @@ export default function StellarChatInterface() {
         try {
           const adminAddr = await getAdmin();
           setIsAdmin(adminAddr === connection.address);
-        } catch (err) {
-          console.error('Failed to check admin role:', err);
+        } catch (err: unknown) {
+          console.error('Failed to check admin role:', err instanceof Error ? err.message : 'Unknown error');
           setIsAdmin(false);
         }
       } else {
