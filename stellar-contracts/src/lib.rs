@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol};
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -93,6 +93,36 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::TotalDeposited, &(total + amount));
+
+        env.events()
+            .publish((Symbol::new(&env, "deposit"), from), amount);
+        Ok(())
+    }
+
+    /// Withdraw tokens from the bridge. Caller must authorise.
+    pub fn withdraw(env: Env, to: Address, amount: i128) -> Result<(), Error> {
+        to.require_auth();
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let token_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_id);
+
+        let balance = token_client.balance(&env.current_contract_address());
+        if amount > balance {
+            return Err(Error::InsufficientFunds);
+        }
+
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.events()
+            .publish((Symbol::new(&env, "withdraw"), to), amount);
+
         Ok(())
     }
 
