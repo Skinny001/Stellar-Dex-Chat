@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, Env, Symbol, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Bytes, Env,
+    Symbol, Vec,
 };
 
 // ── Error codes ───────────────────────────────────────────────────────────
@@ -16,7 +17,8 @@ pub enum Error {
     InsufficientFunds = 6,
     WithdrawalLocked = 7,
     RequestNotFound = 8,
-    ReferenceTooLong = 9,
+    CooldownActive = 9,
+    NotAllowed = 9,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -84,12 +86,44 @@ impl FiatBridge {
     ) -> Result<u64, Error> {
         from.require_auth();
 
-        if reference.len() > MAX_REFERENCE_LEN {
-            return Err(Error::ReferenceTooLong);
+        // Allowlist gate: when enabled, only approved addresses may deposit.
+        let allowlist_on: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllowlistEnabled)
+            .unwrap_or(false);
+        if allowlist_on {
+            if !env
+                .storage()
+                .persistent()
+                .has(&DataKey::Allowed(from.clone()))
+            {
+                return Err(Error::NotAllowed);
+            }
         }
+
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        // ── Cooldown check ────────────────────────────────────────────
+        let cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
+        if cooldown > 0 {
+            if let Some(last) = env
+                .storage()
+                .temporary()
+                .get::<DataKey, u32>(&DataKey::LastDeposit(from.clone()))
+            {
+                if env.ledger().sequence() < last.saturating_add(cooldown) {
+                    return Err(Error::CooldownActive);
+                }
+            }
+        }
+
         let limit: i128 = env
             .storage()
             .instance()
@@ -166,12 +200,6 @@ impl FiatBridge {
         if amount > balance {
             return Err(Error::InsufficientFunds);
         }
-
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
-
-        env.events()
-            .publish((Symbol::new(&env, "withdraw"), to), amount);
-
         Ok(())
     }
 
@@ -278,6 +306,21 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
+        Ok(())
+    }
+
+    /// Set per-address deposit cooldown (in ledgers). Admin only.
+    /// A value of 0 disables cooldown checks.
+    pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::CooldownLedgers, &ledgers);
         Ok(())
     }
 

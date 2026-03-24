@@ -29,11 +29,11 @@ fn setup_bridge(
     limit: i128,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    TokenClient,
-    StellarAssetClient,
+    TokenClient<'_>,
+    StellarAssetClient<'_>,
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);
@@ -158,6 +158,109 @@ fn test_set_limit() {
     assert_eq!(bridge.get_limit(), 500);
     bridge.set_limit(&50);
     assert_eq!(bridge.get_limit(), 50);
+}
+
+#[test]
+fn test_set_and_get_cooldown() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 100);
+    assert_eq!(bridge.get_cooldown(), 0);
+
+    bridge.set_cooldown(&12);
+    assert_eq!(bridge.get_cooldown(), 12);
+
+    bridge.set_cooldown(&0);
+    assert_eq!(bridge.get_cooldown(), 0);
+}
+
+#[test]
+fn test_deposit_cooldown_blocks_rapid_second_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_cooldown(&10);
+    let start_ledger = env.ledger().sequence();
+
+    bridge.deposit(&user, &100);
+    assert_eq!(bridge.get_last_deposit_ledger(&user), Some(start_ledger));
+
+    // Same address, same ledger window → must fail
+    let result = bridge.try_deposit(&user, &50);
+    assert_eq!(result, Err(Ok(Error::CooldownActive)));
+}
+
+#[test]
+fn test_deposit_succeeds_after_cooldown_period() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_cooldown(&7);
+    let start_ledger = env.ledger().sequence();
+
+    bridge.deposit(&user, &100);
+
+    // Advance past the cooldown window
+    env.ledger().with_mut(|li| {
+        li.sequence = start_ledger + 7;
+    });
+
+    // Should succeed now
+    bridge.deposit(&user, &50);
+}
+
+#[test]
+fn test_deposit_cooldown_is_per_address_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &1_000);
+    token_sac.mint(&user_b, &1_000);
+
+    bridge.set_cooldown(&10);
+
+    bridge.deposit(&user_a, &100);
+
+    // Different address is unaffected by user_a's cooldown
+    bridge.deposit(&user_b, &100);
+
+    // user_a still blocked
+    let result = bridge.try_deposit(&user_a, &50);
+    assert_eq!(result, Err(Ok(Error::CooldownActive)));
+}
+
+#[test]
+fn test_last_deposit_record_expires_with_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_cooldown(&5);
+    let start_ledger = env.ledger().sequence();
+    bridge.deposit(&user, &100);
+    assert_eq!(bridge.get_last_deposit_ledger(&user), Some(start_ledger));
+
+    // Move beyond cooldown TTL so the temporary key naturally expires
+    env.ledger().with_mut(|li| {
+        li.sequence = start_ledger + 6;
+    });
+
+    assert_eq!(bridge.get_last_deposit_ledger(&user), None);
 }
 
 #[test]
