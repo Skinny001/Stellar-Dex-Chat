@@ -15,6 +15,9 @@ import {
   getBridgeLimit,
   withdrawFromContract,
   stroopsToDisplay,
+  simulateDeposit,
+  simulateWithdraw,
+  FeeEstimate,
 } from '@/lib/stellarContract';
 import {
   getTokenPrice,
@@ -86,6 +89,8 @@ export default function StellarFiatModal({
   const [bridgeLimit, setBridgeLimit] = useState<bigint | null>(null);
   const [bridgeLimitError, setBridgeLimitError] = useState('');
   const [isLoadingBridgeLimit, setIsLoadingBridgeLimit] = useState(false);
+  const [feeEstimate, setFeeEstimate] = useState<FeeEstimate | null>(null);
+  const [isLoadingFee, setIsLoadingFee] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -104,6 +109,7 @@ export default function StellarFiatModal({
     setStatus('idle');
     setTxHash('');
     setErrorMsg('');
+    setFeeEstimate(null);
 
     if (isAdminMode) {
       setBridgeLimit(null);
@@ -141,6 +147,50 @@ export default function StellarFiatModal({
       cancelled = true;
     };
   }, [defaultAmount, isAdminMode, isOpen, recipientAddress]);
+
+  useEffect(() => {
+    if (!isOpen || !connection.isConnected) {
+      setFeeEstimate(null);
+      return;
+    }
+    const currentStroops = parseAmountToStroops(amount);
+    if (!currentStroops || currentStroops <= BigInt(0)) {
+      setFeeEstimate(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingFee(true);
+
+    const simulateTransaction = async () => {
+      try {
+        let estimate: FeeEstimate | null;
+        if (isAdminMode) {
+          const to = recipient || connection.publicKey;
+          estimate = await simulateWithdraw(connection.publicKey, to, currentStroops);
+        } else {
+          estimate = await simulateDeposit(connection.publicKey, currentStroops);
+        }
+        if (!cancelled) {
+          setFeeEstimate(estimate);
+        }
+      } catch {
+        if (!cancelled) {
+          setFeeEstimate(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingFee(false);
+        }
+      }
+    };
+
+    const debounceTimer = setTimeout(simulateTransaction, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounceTimer);
+    };
+  }, [amount, connection.isConnected, connection.publicKey, isAdminMode, isOpen, recipient]);
 
   // Live fiat estimate: recalculate whenever amount or fiatCurrency changes
   const updateFiatEstimate = useCallback(async () => {
@@ -357,15 +407,31 @@ export default function StellarFiatModal({
               />
             </div>
 
-            {/* Fiat estimate */}
-            {fiatEstimate && (
-              <p className="text-xs text-gray-400 -mt-2 mb-4">
-                ≈ <span className="text-white font-medium">{fiatEstimate}</span>{' '}
-                at current market rate
-              </p>
-            )}
+      {/* Fiat estimate */}
+      {fiatEstimate && (
+        <p className="text-xs text-gray-400 -mt-2 mb-4">
+          ≈ <span className="text-white font-medium">{fiatEstimate}</span>{' '}
+          at current market rate
+        </p>
+      )}
 
-            {isDepositFlow && (
+      {/* Fee estimate */}
+      {(isLoadingFee || feeEstimate) && (
+        <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
+          <span>Est. transaction fee</span>
+          <span>
+            {isLoadingFee ? (
+              'Calculating...'
+            ) : feeEstimate ? (
+              `~${feeEstimate.fee.toFixed(7)} XLM`
+            ) : (
+              'Unavailable'
+            )}
+          </span>
+        </div>
+      )}
+
+      {isDepositFlow && (
               <div className="mb-4 rounded-xl border border-gray-700 bg-gray-800/60 px-4 py-3">
                 <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
                   <span>On-chain per-deposit limit</span>

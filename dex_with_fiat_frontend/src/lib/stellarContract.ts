@@ -29,11 +29,16 @@ const server = new rpc.Server(RPC_URL, { allowHttp: false });
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/** Build, simulate, and assemble a transaction. Returns the assembled XDR. */
+export interface FeeEstimate {
+  minFee: string;
+  fee: number;
+}
+
+/** Build, simulate, and assemble a transaction. Returns the assembled XDR and fee estimate. */
 async function buildAndSimulate(
   publicKey: string,
   operation: ReturnType<Contract['call']>,
-): Promise<string> {
+): Promise<{ assembledXdr: string; feeEstimate: FeeEstimate | null }> {
   const account = await server.getAccount(publicKey);
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
@@ -47,7 +52,21 @@ async function buildAndSimulate(
   if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${sim.error}`);
   }
-  return rpc.assembleTransaction(tx, sim).build().toXDR();
+
+  let feeEstimate: FeeEstimate | null = null;
+  const successSim = sim as rpc.Api.SimulateTransactionSuccessResponse;
+  if (successSim.minResourceFee !== undefined) {
+    const feeInStroops = BigInt(successSim.minResourceFee);
+    feeEstimate = {
+      minFee: successSim.minResourceFee,
+      fee: Number(feeInStroops) / 10_000_000,
+    };
+  }
+
+  return {
+    assembledXdr: rpc.assembleTransaction(tx, sim).build().toXDR(),
+    feeEstimate,
+  };
 }
 
 /** Submit a signed XDR and wait for confirmation. */
@@ -74,6 +93,47 @@ async function submitAndWait(signedXdr: string): Promise<string> {
 
 // ── Write functions (require wallet signature) ────────────────────────────
 
+export interface TransactionResult {
+  hash: string;
+  feeEstimate: FeeEstimate | null;
+}
+
+/**
+ * Simulate a deposit transaction and return fee estimate without submitting.
+ */
+export async function simulateDeposit(
+  publicKey: string,
+  amount: bigint,
+): Promise<FeeEstimate | null> {
+  await validateBridgeAmountLimit(amount);
+  const contract = new Contract(CONTRACT_ID);
+  const op = contract.call(
+    'deposit',
+    new Address(publicKey).toScVal(),
+    nativeToScVal(amount, { type: 'i128' }),
+  );
+  const { feeEstimate } = await buildAndSimulate(publicKey, op);
+  return feeEstimate;
+}
+
+/**
+ * Simulate a withdraw transaction and return fee estimate without submitting.
+ */
+export async function simulateWithdraw(
+  adminPublicKey: string,
+  recipientPublicKey: string,
+  amount: bigint,
+): Promise<FeeEstimate | null> {
+  const contract = new Contract(CONTRACT_ID);
+  const op = contract.call(
+    'withdraw',
+    new Address(recipientPublicKey).toScVal(),
+    nativeToScVal(amount, { type: 'i128' }),
+  );
+  const { feeEstimate } = await buildAndSimulate(adminPublicKey, op);
+  return feeEstimate;
+}
+
 /**
  * Deposit `amount` stroops of the bridged token from `publicKey` into the contract.
  * Returns the transaction hash on success.
@@ -90,8 +150,8 @@ export async function depositToContract(
     new Address(publicKey).toScVal(),
     nativeToScVal(amount, { type: 'i128' }),
   );
-  const assembled = await buildAndSimulate(publicKey, op);
-  const signed = await signTx(assembled);
+  const { assembledXdr } = await buildAndSimulate(publicKey, op);
+  const signed = await signTx(assembledXdr);
   return submitAndWait(signed);
 }
 
@@ -111,8 +171,8 @@ export async function withdrawFromContract(
     new Address(recipientPublicKey).toScVal(),
     nativeToScVal(amount, { type: 'i128' }),
   );
-  const assembled = await buildAndSimulate(adminPublicKey, op);
-  const signed = await signTx(assembled);
+  const { assembledXdr } = await buildAndSimulate(adminPublicKey, op);
+  const signed = await signTx(assembledXdr);
   return submitAndWait(signed);
 }
 
