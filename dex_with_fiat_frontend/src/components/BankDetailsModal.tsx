@@ -19,6 +19,10 @@ import { convertCryptoToFiat } from '@/lib/cryptoPriceService';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
 import { useTxHistory } from '@/hooks/useTxHistory';
+import TransferTimeline, {
+  StatusEvent,
+  TransferStatus,
+} from '@/components/TransferTimeline';
 
 interface Bank {
   id: number;
@@ -104,6 +108,17 @@ export default function BankDetailsModal({
   // Step 4 - success
   const [transferReference, setTransferReference] = useState('');
 
+  // Transfer timeline
+  const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const [isPollingStatus, setIsPollingStatus] = useState(false);
+
+  const pushStatusEvent = (status: TransferStatus, label?: string) => {
+    setStatusEvents((prev: StatusEvent[]) => [
+      ...prev,
+      { status, timestamp: new Date(), label },
+    ]);
+  };
+
   // Fetch banks when modal opens
   useEffect(() => {
     if (!isOpen) return;
@@ -171,6 +186,8 @@ export default function BankDetailsModal({
     if (!selectedBank || !verifiedAccount) return;
     setPayoutLoading(true);
     setPayoutError('');
+    setStatusEvents([]);
+    pushStatusEvent('initiated', 'Transfer initiated');
     addNotification('payout_pending', 'Fiat payout request is pending...');
     try {
       // 1. Create Paystack transfer recipient
@@ -195,6 +212,9 @@ export default function BankDetailsModal({
           recipientJson.message ?? 'Failed to create transfer recipient',
         );
       }
+
+      pushStatusEvent('pending', 'Submitted to bank — awaiting confirmation');
+      setIsPollingStatus(true);
 
       // 2. Initiate the NGN bank transfer
       // The route handler multiplies the amount by 100 before calling Paystack,
@@ -244,11 +264,15 @@ export default function BankDetailsModal({
       });
       // Simulation block
       await new Promise(resolve => setTimeout(resolve, 2500));
+      setIsPollingStatus(false);
+      pushStatusEvent('success', 'Bank transfer confirmed');
       setStep(4);
       addNotification('payout_success', 'Fiat payout successfully completed!');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Payout failed. Please try again.';
       setPayoutError(errorMsg);
+      setIsPollingStatus(false);
+      pushStatusEvent('failed', `Transfer failed: ${errorMsg}`);
       addNotification('payout_fail', `Payout failed: ${errorMsg}`);
     } finally {
       setPayoutLoading(false);
@@ -279,6 +303,8 @@ export default function BankDetailsModal({
     setEditingName('');
     setShowSavePrompt(false);
     setSaveCustomName('');
+    setStatusEvents([]);
+    setIsPollingStatus(false);
     onClose();
   };
 
@@ -745,6 +771,19 @@ export default function BankDetailsModal({
                 )}
               </button>
             </div>
+
+            {/* Payout Status Timeline — visible while processing */}
+            {statusEvents.length > 0 && (
+              <div className="mt-6">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer Status
+                </p>
+                <TransferTimeline
+                  events={statusEvents}
+                  isPolling={isPollingStatus}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -773,6 +812,16 @@ export default function BankDetailsModal({
                 <p className="theme-text-primary font-mono text-sm break-all">
                   {transferReference}
                 </p>
+              </div>
+            )}
+
+            {/* Timeline showing all status transitions */}
+            {statusEvents.length > 0 && (
+              <div className="mb-6 text-left">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer History
+                </p>
+                <TransferTimeline events={statusEvents} isPolling={false} />
               </div>
             )}
 

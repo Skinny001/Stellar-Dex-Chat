@@ -11,21 +11,34 @@ pub const MIN_TTL: u32 = 518_400;
 pub const MAX_TTL: u32 = 535_680;
 
 // ── Error codes ───────────────────────────────────────────────────────────
+/// All error codes returned by FiatBridge contract functions.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    /// The contract has not been initialised yet (`init` was never called).
     NotInitialized = 1,
+    /// `init` has already been called; the contract cannot be initialised twice.
     AlreadyInitialized = 2,
+    /// The caller does not have the required authorisation (e.g. not the admin).
     Unauthorized = 3,
+    /// The supplied amount is zero or negative, which is not permitted.
     ZeroAmount = 4,
+    /// The requested amount exceeds the per-deposit limit configured for the token.
     ExceedsLimit = 5,
+    /// The contract does not hold enough tokens to satisfy the withdrawal.
     InsufficientFunds = 6,
+    /// The withdrawal request has not yet reached its unlock ledger.
     WithdrawalLocked = 7,
+    /// No withdrawal request exists with the supplied ID.
     RequestNotFound = 8,
+    /// The supplied token address is not in the whitelist.
     TokenNotWhitelisted = 9,
+    /// The deposit reference exceeds the maximum allowed byte length.
     ReferenceTooLong = 10,
+    /// The sender attempted a deposit before their cooldown period has elapsed.
     CooldownActive = 11,
+    /// `accept_admin` or `cancel_admin_transfer` was called when no pending admin exists.
     NoPendingAdmin = 12,
 }
 
@@ -70,22 +83,38 @@ const MAX_REFERENCE_LEN: u32 = 64;
 const MAX_BATCH_SIZE: u32 = 25;
 
 // ── Storage keys ──────────────────────────────────────────────────────────
+/// All persistent and instance storage keys used by FiatBridge.
 #[contracttype]
 pub enum DataKey {
+    /// The current admin address.
     Admin,
+    /// A nominated admin address that has not yet accepted the transfer.
     PendingAdmin,
+    /// The default token address set during `init`.
     Token,
+    /// Legacy key — superseded by `TokenRegistry`; kept for compatibility.
     BridgeLimit,
+    /// Legacy key — superseded by `TokenRegistry`; kept for compatibility.
     TotalDeposited,
+    /// Cumulative amount deposited by a specific user address.
     UserDeposited(Address),
+    /// Mandatory lock period (in ledgers) for queued withdrawal requests.
     LockPeriod,
+    /// A pending withdrawal request identified by its sequential ID.
     WithdrawQueue(u64),
+    /// Auto-incrementing counter used to generate withdrawal request IDs.
     NextRequestID,
+    /// Per-token configuration (`TokenConfig`) keyed by token address.
     TokenRegistry(Address),
+    /// Auto-incrementing counter used to generate deposit receipt IDs.
     ReceiptCounter,
+    /// A deposit receipt identified by its sequential ID.
     Receipt(u64),
+    /// Optional daily withdrawal cap enforced across the rolling 24 h window.
     DailyWithdrawLimit,
+    /// Minimum ledger gap required between successive deposits from the same address.
     DepositCooldown,
+    /// Ledger sequence of the last deposit made by a specific address.
     LastDepositLedger(Address),
 }
 
@@ -543,6 +572,10 @@ impl FiatBridge {
     }
 
     // ── View functions ────────────────────────────────────────────────────
+    /// Returns the current admin address.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if `init` has not been called.
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         env.storage()
             .instance()
@@ -603,6 +636,11 @@ impl FiatBridge {
         Ok(config.total_deposited)
     }
     /// Running total of historical deposits for a specific user.
+    ///
+    /// Returns `0` if the user has never deposited.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if `init` has not been called.
     pub fn get_user_deposited(env: Env, user: Address) -> Result<i128, Error> {
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotInitialized);
@@ -614,7 +652,9 @@ impl FiatBridge {
             .unwrap_or(0))
     }
 
-    /// Get details of a withdrawal request.
+    /// Get details of a pending withdrawal request by its ID.
+    ///
+    /// Returns `None` if the request has already been executed or cancelled.
     pub fn get_withdrawal_request(env: Env, request_id: u64) -> Option<WithdrawRequest> {
         env.storage()
             .persistent()
@@ -639,6 +679,8 @@ impl FiatBridge {
     // ── Receipt view functions ─────────────────────────────────────────
 
     /// Look up a deposit receipt by its ID.
+    ///
+    /// Returns `None` if no receipt exists for the given ID.
     pub fn get_receipt(env: Env, id: u64) -> Option<Receipt> {
         env.storage().persistent().get(&DataKey::Receipt(id))
     }
@@ -679,7 +721,7 @@ impl FiatBridge {
         results
     }
 
-    /// Get the current receipt counter (total number of receipts issued).
+    /// Get the current receipt counter (total number of receipts ever issued).
     pub fn get_receipt_counter(env: Env) -> u64 {
         env.storage()
             .instance()

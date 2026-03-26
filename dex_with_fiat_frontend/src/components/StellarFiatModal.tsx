@@ -8,6 +8,8 @@ import {
   CheckCircle,
   AlertCircle,
   ArrowDownUp,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import {
@@ -95,6 +97,15 @@ export default function StellarFiatModal({
   const [txHash, setTxHash] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoadingUI, setIsLoadingUI] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyHash = () => {
+    if (!txHash) return;
+    navigator.clipboard?.writeText(txHash).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => { /* clipboard unavailable — no-op */ });
+  };
 
   const {
     limit: bridgeLimit,
@@ -503,14 +514,29 @@ export default function StellarFiatModal({
                 Note: <span className="theme-text-primary">{note}</span>
               </p>
             )}
-            <a
-              href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-400 hover:underline text-xs break-all"
-            >
-              {txHash}
-            </a>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <a
+                href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-400 hover:underline text-xs break-all"
+              >
+                {txHash}
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyHash}
+                aria-label="Copy transaction hash"
+                className="flex-shrink-0 p-1 rounded text-gray-400 hover:text-blue-400 transition-colors"
+                title="Copy hash"
+              >
+                {copied ? (
+                  <Check className="w-4 h-4 text-green-400" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
 
             {!isAdminMode && onDepositSuccess ? (
               <button
